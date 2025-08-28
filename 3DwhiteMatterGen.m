@@ -1,16 +1,14 @@
-%% --- To Do ----------------------------------------------------------
-% Implement orientation dispersion
-% Check & improve collision checks
-% Validate dipole convolution method (iso vs anisotropic)
-% Implement mean and sd for undulation amp and freq
+% Compartmentalise field shift maps & ks density histograms|
+% KS density estimates - does each method follow a sine wave with respect to orientation?
+% Add orthogonal plane cylinder growth to mimic crossing fibres, and a weighting function for fibre populations/densities
 
 clear all; close all; clc;
 
 %% --- Parameters -----------------------------------------------
 % Environment
 voxelSize         = 200; % in µm
-axonTargetFill    = 0.35; % percentage target volume
-sphereTargetFill  = axonTargetFill * 0.001; % target volume for spheres (modulated by axon volume)
+axonTargetFill    = 0.15; % percentage target volume
+sphereTargetFill  = axonTargetFill * 0.005; % target volume for spheres (modulated by axon volume)
 
 % Geometry
 gRatioMean = 0.65;        % G-ratio mean 
@@ -23,10 +21,10 @@ numRings   = 200;         % Number of cross-sectional 'rings' along each axon
 circleRes  = 64;          % Number of points used to define each ring
 sphereRadiusRange = [0.4, 2];  % Range of radii for the randomly placed spheres (e.g., cells, obstacles)
 
-segmentLength = round(numRings / 20);   % Number of rings per axon segment (n segments total per axon)
+segmentLength = round(numRings / 35);   % Number of rings per axon segment (n segments total per axon)
 demyelinationProb = 0.2;                % Probability that a segment along an axon is demyelinated
-%rng(1);  % Set random seed for reproducibility (same seed for each iteration)
-rng('shuffle');  % Random seed
+rng(1);  % Set random seed for reproducibility (same seed for each iteration)
+%rng('shuffle');  % Random seed
 
 
 %% --- Initialization -----------------------------------------------------
@@ -75,9 +73,7 @@ while (axonFilledVol/totalVol < axonTargetFill)
     radiusBound = rMyelin + undAmp;
 
     if ~isempty(boundingSpheres)
-        dists = sqrt((boundingSpheres(:,1)-cx).^2 + ...
-            (boundingSpheres(:,2)-cy).^2 + ...
-            (boundingSpheres(:,3)-cz).^2);
+        dists = sqrt((boundingSpheres(:,1)-cx).^2 + (boundingSpheres(:,2)-cy).^2 + (boundingSpheres(:,3)-cz).^2);
         overlaps = dists < (boundingSpheres(:,4) + radiusBound);
         if any(overlaps)
             continue
@@ -188,77 +184,13 @@ while (sphereFilledVol/totalVol < sphereTargetFill) && (attempts < 10000)
 
     waitbar(sphereFilledVol/totalVol, h, sprintf('Spheres: %d | Fill: %.2f%%', size(sphereCenters,1), 100*sphereFilledVol/totalVol));
 end
-
 close(h);
-fprintf('Placed %d spheres, fill: %.1f%% of volume\n', ...
-    size(sphereCenters,1), 100*sphereFilledVol/totalVol);
 
-%% --- Geometry stats --------------------------------------------------------
-dz = voxelSize / (numRings - 1);
-myelinTotal = 0;
-axonTotal = 0;
-
-for i = 1:numel(axonMeshes)
-    ax = axonMeshes{i};
-    rA = ax.rAxon;
-    rM = ax.rMyelin;
-
-    demyelinMap = true(1, numRings);
-    demyelinMap(ax.demyelinatedRings) = false;
-
-    % Axon volume: full cylinder for all rings
-    axonVol = pi * rA^2 * voxelSize;
-    axonTotal = axonTotal + axonVol;
-
-    % Myelin volume: only over myelinated rings
-    myelinVol = sum(demyelinMap) * pi * (rM^2 - rA^2) * dz;
-    myelinTotal = myelinTotal + myelinVol;
-end
-
-fprintf('\n=== Final Volume Stats ===\n');
-fprintf('Total axons:     %d\n', axonCount);
-fprintf('Total spheres:   %d\n', length(sphereCenters));
-fprintf('Axon volume:     %.3e µm^3 (%.2f%%)\n', axonTotal, 100*axonTotal/totalVol);
-fprintf('Myelin volume:   %.3e µm^3 (%.2f%%)\n', myelinTotal, 100*myelinTotal/totalVol);
-fprintf('Sphere fill:     %.2f%%\n',100*sphereFilledVol/totalVol);
-fprintf('Total fill:      %.2f%%\n',100*(myelinTotal+axonTotal+sphereFilledVol)/totalVol);
-
-%% --- Render -------------------------------------------------------
-figure;
-hold on;
-axonHandle = patch(NaN(2), NaN(2), [0.2 0.2 0.8], 'FaceAlpha', 1, 'EdgeColor', 'none');
-myelinHandle = patch(NaN(2), NaN(2), [0.85 0.85 0.85], 'FaceAlpha', 0.5, 'EdgeColor', 'none');
-ironHandle = surf(nan(2), nan(2), nan(2), 'FaceColor', [0.9 0.3 0.3], 'EdgeColor', 'none', 'FaceAlpha', 1);
-for i = 1:axonCount
-    patch('Vertices', axonMeshes{i}.innerVerts, 'Faces', axonMeshes{i}.faces, ...
-        'FaceColor', [0.2 0.2 0.8], 'EdgeColor', 'none', 'FaceAlpha', 1);
-    patch('Vertices', axonMeshes{i}.vertices, 'Faces', axonMeshes{i}.faces, ...
-        'FaceColor', [0.85 0.85 0.85], 'EdgeColor', 'none', 'FaceAlpha', 0.5);
-end
-[sX, sY, sZ] = sphere(16);
-for i = 1:size(sphereCenters, 1)
-    r = sphereRadii(i); c = sphereCenters(i,:);
-    surf(r*sX + c(1), r*sY + c(2), r*sZ + c(3), ...
-        'FaceColor', [0.9 0.3 0.3], 'EdgeColor', 'none', 'FaceAlpha', 1);
-end
-axis equal;
-axis vis3d;
-xlabel('X (µm)');
-xlim([-10 210]);
-ylabel('Y (µm)');
-ylim([-10 210]);
-zlabel('Z (µm)');
-zlim([-10 210]);
-grid on;
-view(3);
-lighting flat;
-camlight headlight;
-legend([axonHandle, myelinHandle, ironHandle], {'Axons', 'Myelin', 'Spheres'}, 'Location', 'northeast');
-
-%% --- Geometry Histograms ---------------------------------------------
 rAxons   = cellfun(@(a) a.rAxon, axonMeshes);
 rMyelins = cellfun(@(a) a.rMyelin, axonMeshes);
 gRatios  = rAxons ./ rMyelins;
+
+%% --- Geometry Histograms ---------------------------------------------
 
 figure('Name','Distributions of Axon, Myelin, g-Ratio, and Spheres','NumberTitle','off', 'Color', 'w');
 subplot(2,2,1);
@@ -311,48 +243,132 @@ title('Sphere Radius Distribution');
 set(gca, 'FontSize', 12);
 sgtitle('Distributions of Axon Radius, Myelin Radius, g-Ratio, and Sphere Radius', 'FontSize', 14);
 
+%% --- Parameter Summary -------------------------------------------------------
+axonTotal = 0;
+myelinTotal = 0;
+
+for i = 1:length(axonMeshes)
+    rAx = axonMeshes{i}.rAxon;
+    rMy = axonMeshes{i}.rMyelin;
+    h = voxelSize;
+
+    volAxon = pi * rAx^2 * h;
+    volMyelin = pi * (rMy^2 - rAx^2) * h;
+
+    axonTotal = axonTotal + volAxon;
+    myelinTotal = myelinTotal + volMyelin;
+end
+
+paramText = sprintf([
+    '=== Parameter Summary ===\n' ...
+    'Voxel size (µm)                : %g\n' ...
+    'Target axon fill fraction      : %.3f\n' ...
+    'Target sphere fill fraction    : %.6f\n' ...
+    'G-ratio                       : %.3f ± %.3f (mean ± std)\n' ...
+    'Axon radius (µm)               : %.3f ± %.3f (mean ± std)\n' ...
+    'Myelin radius (µm)             : %.3f ± %.3f (mean ± std)\n' ...
+    'g-Ratio (axon/myelin)          : %.3f ± %.3f (mean ± std)\n' ...
+    'Axon radius range (µm)         : [%.3f, %.3f] (min, max)\n' ...
+    'Myelin radius range (µm)       : [%.3f, %.3f] (min, max)\n' ...
+    'Undulation amplitude (µm)      : %.3f (mean)\n' ...
+    'Undulation frequency (1/µm)    : %.5f (mean)\n' ...
+    'Number of rings per axon        : %d\n' ...
+    'Circle resolution (points/ring): %d\n' ...
+    'Segment length (rings)          : %d\n' ...
+    'Demyelination probability      : %.3f\n' ...
+    'Total axons generated          : %d\n' ...
+    'Total axon volume              : %.3e µm^3 (%.2f%%)\n' ...
+    'Total myelin volume            : %.3e µm^3 (%.2f%%)\n' ...
+    'Total spheres placed           : %d\n' ...
+    'Sphere radius (µm)             : %.3f ± %.3f (mean ± std)\n' ...
+    'Sphere radius range (µm)       : [%.3f, %.3f] (min, max)\n' ...
+    'Total sphere volume            : %.3e µm^3 (%.2f%%)\n' ...
+    'Total volume fill fraction     : %.2f%%\n'], ...
+    voxelSize, axonTargetFill, sphereTargetFill, ...
+    gRatioMean, gRatioStd, ...
+    mean(rAxons), std(rAxons), ...
+    mean(rMyelins), std(rMyelins), ...
+    mean(rAxons./rMyelins), std(rAxons./rMyelins), ...
+    min(rAxons), max(rAxons), ...
+    min(rMyelins), max(rMyelins), ...
+    undAmp, undFreq, ...
+    numRings, circleRes, segmentLength, demyelinationProb, ...
+    axonCount, ...
+    axonTotal, 100*axonTotal/totalVol, ...
+    myelinTotal, 100*myelinTotal/totalVol, ...
+    length(sphereRadii), ...
+    mean(sphereRadii), std(sphereRadii), ...
+    min(sphereRadii), max(sphereRadii), ...
+    sphereFilledVol, 100*sphereFilledVol/totalVol, ...
+    100*(axonTotal + myelinTotal + sphereFilledVol)/totalVol);
+
+figure('Name','Parameter Summary','NumberTitle','off','Color','w');
+annotation('textbox',[0 0 1 1],'Interpreter','none', ...
+           'FontName','Courier New','FontSize',10, ...
+           'EdgeColor','none','HorizontalAlignment','left', ...
+           'VerticalAlignment','top','String',paramText);
+
+%% --- Render -------------------------------------------------------
+figure('Color', 'w');
+hold on;
+axonHandle = patch(NaN(2), NaN(2), [0.2 0.2 0.8], 'FaceAlpha', 1, 'EdgeColor', 'none');
+myelinHandle = patch(NaN(2), NaN(2), [0.85 0.85 0.85], 'FaceAlpha', 0.5, 'EdgeColor', 'none');
+ironHandle = surf(nan(2), nan(2), nan(2), ...
+    'FaceColor', [0.9 0.3 0.3], 'EdgeColor', 'none', 'FaceAlpha', 1);
+% Cylinders
+for i = 1:axonCount
+    patch('Vertices', axonMeshes{i}.innerVerts, 'Faces', axonMeshes{i}.faces, ...
+        'FaceColor', [0.2 0.2 0.8], 'EdgeColor', 'none', 'FaceAlpha', 1);
+    patch('Vertices', axonMeshes{i}.vertices, 'Faces', axonMeshes{i}.faces, ...
+        'FaceColor', [0.85 0.85 0.85], 'EdgeColor', 'none', 'FaceAlpha', 0.5);
+end
+
+% Spheres
+[sX, sY, sZ] = sphere(16);
+for i = 1:size(sphereCenters, 1)
+    r = sphereRadii(i); c = sphereCenters(i,:);
+    surf(r*sX + c(1), r*sY + c(2), r*sZ + c(3), ...
+        'FaceColor', [0.9 0.3 0.3], 'EdgeColor', 'none', 'FaceAlpha', 1);
+end
+axis equal;
+axis vis3d;
+xlabel('X (µm)', 'FontSize', 14);
+ylabel('Y (µm)', 'FontSize', 14);
+zlabel('Z (µm)', 'FontSize', 14);
+xlim([-10 voxelSize+10]);
+ylim([-10 voxelSize+10]);
+zlim([-10 voxelSize+10]);
+grid on;
+view(3);
+lighting flat;
+camlight headlight;
+set(gca, 'FontSize', 10);
+
 %% Bounding sphere render
-% figure;
-% hold on;
-% axis equal;
-% xlabel('X');
-% ylabel('Y');
-% zlabel('Z');
-% grid on;
-% view(3);
-% camlight headlight;
-% lighting gouraud;
-% sphereHandles = gobjects(size(boundingSpheres,1),1);
-% lineHandles = gobjects(length(axonMeshes),1);
-% for i = 1:size(boundingSpheres,1)
-%     [sx, sy, sz] = sphere(16);
-%     cx = boundingSpheres(i,1);
-%     cy = boundingSpheres(i,2);
-%     cz = boundingSpheres(i,3);
-%     r = boundingSpheres(i,4);
-%     sphereHandles(i) = surf(r*sx + cx, r*sy + cy, r*sz + cz, ...
-%         'FaceAlpha', 0.3, 'EdgeColor', 'none', 'FaceColor', [0 0.7 0.7]);
-% end
-% for i = 1:length(axonMeshes)
-%     centers = axonMeshes{i}.ringCenters;
-%     lineHandles(i) = plot3(centers(:,1), centers(:,2), centers(:,3), 'k-', 'LineWidth', 1);
-% end
-% legend([sphereHandles(1), lineHandles(1)], {'Bounding spheres', 'Cylinder Axes'}, 'Location', 'best');
-
-
-%% --- Field shift maps ------------
-B0 = 7; % magnitude
-B0_vec = [0, 0, B0];  % Vector representing B0 (x, y, z)
-ChiMy = -0.08e-6; % Myelin susceptibility in ppm
-ChiAx = 0; % Ssuceptibility difference between IA and EA compartments
-Chi_iron = 0.04e-6; % Sphere susceptibility in ppm
-gridRes = 1;  % µm resolution
-[xg, yg, zg] = ndgrid(0:gridRes:voxelSize, 0:gridRes:voxelSize, 0:gridRes:voxelSize);
-
-% Iron map
-IronB0_total = compute_iron_B0_3D(xg, yg, zg, B0, sphereCenters, sphereRadii, Chi_iron);
-% Myelin map
-MyelinB0_total = compute_myelin_B0_3D(xg, yg, zg, B0_vec, axonMeshes, ChiMy, ChiAx);
-% Sum contributions of perturbers
-DeltaB0_total = MyelinB0_total + IronB0_total;
-print('Susceptibility-induced ΔB₀ simulated.')
+figure;
+hold on;
+axis equal;
+xlabel('X (µm)');
+ylabel('Y (µm)');
+zlabel('Z (µm)');
+grid on;
+view(3);
+camlight headlight;
+lighting gouraud;
+set(gca, 'FontSize', 14);
+sphereHandles = gobjects(size(boundingSpheres,1),1);
+lineHandles = gobjects(length(axonMeshes),1);
+for i = 1:size(boundingSpheres,1)
+    [sx, sy, sz] = sphere(16);
+    cx = boundingSpheres(i,1);
+    cy = boundingSpheres(i,2);
+    cz = boundingSpheres(i,3);
+    r = boundingSpheres(i,4);
+    sphereHandles(i) = surf(r*sx + cx, r*sy + cy, r*sz + cz, ...
+        'FaceAlpha', 0.3, 'EdgeColor', 'none', 'FaceColor', [0 0.7 0.7]);
+end
+for i = 1:length(axonMeshes)
+    centers = axonMeshes{i}.ringCenters;
+    lineHandles(i) = plot3(centers(:,1), centers(:,2), centers(:,3), 'k--', 'LineWidth', 0.5);
+end
+legend([sphereHandles(1), lineHandles(1)], {'Bounding spheres', 'Cylinder Axes'}, 'Location', 'northeast', 'Fontsize', 14);
