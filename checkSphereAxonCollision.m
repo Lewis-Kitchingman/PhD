@@ -1,16 +1,22 @@
-function collided = checkSphereAxonCollision(center, r, axonMeshes)
-collided = false;
-% Loop through axons
-for i = 1:numel(axonMeshes)
-    ax = axonMeshes{i};
-    % Loop through segments
-    for j = 1:size(ax.ringCenters,1)
-        dist = norm(center - ax.ringCenters(j,:));
-        % If distance is less than current radius + myelin a collision occurs
-        if dist < (r + ax.rMyelin)
-            collided = true;
-            return;
-        end
+function overlap = checkAxonCollision(centerlineNew, radiusNew, existingMeshes)
+% Returns true if the proposed axon collides with any previously placed axons.
+% centerlineNew : [3 x N] path of new axon
+% radiusNew     : scalar (outer radius including undulation)
+% existingMeshes: cell array of structs with .ringCenters and .rMyelin
+
+overlap = false;
+
+for i = 1:length(existingMeshes)
+    ringCenters = existingMeshes{i}.ringCenters; % [N x 3]
+    radiusExisting = existingMeshes{i}.rMyelin;  % scalar
+
+    % Fast bounding check
+    distCenters = pdist2(centerlineNew', ringCenters);
+    minDist = min(distCenters(:));
+
+    if minDist < (radiusNew + radiusExisting)
+        overlap = true;
+        return;
     end
 end
 end
